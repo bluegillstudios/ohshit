@@ -1,4 +1,4 @@
-# ohshit
+# `ohshit`
 
 A quick CLI tool to help you undo mistakes immediately after a Git commit.  
 
