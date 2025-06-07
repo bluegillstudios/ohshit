@@ -16,7 +16,8 @@ A quick CLI tool to help you undo mistakes immediately after a Git commit.
 
 ## Installation
 
-Requires Python 3 and [colorama](https://pypi.org/project/colorama/):
+Requires Python 3 and [colorama](https://pypi.org/project/colorama/).
+
 Install with `pip`:
 `pip install colorama`
 
