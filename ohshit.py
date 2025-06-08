@@ -3,10 +3,16 @@ import subprocess
 import sys
 import argparse
 from colorama import init, Fore, Style
+from datetime import datetime
+import os
+import json
 
 VERSION = "0.1.0"
 
 init(autoreset=True)
+
+OHSHIT_BACKUP_DIR = os.path.expanduser("~/.ohshit-backups")
+OHSHIT_HISTORY_FILE = os.path.expanduser("~/.ohshit-history.json")
 
 
 def run_git_command(cmd, dry_run=False):
@@ -45,9 +51,46 @@ def last_commit_pushed(branch):
         return False
     return local_hash == remote_hash
 
+
 def is_git_repo():
     code, output = run_git_command(['rev-parse', '--is-inside-work-tree'])
     return code == 0 and output == 'true'
+
+
+def backup_branch(branch, dry_run=False):
+    if not os.path.exists(OHSHIT_BACKUP_DIR):
+        os.makedirs(OHSHIT_BACKUP_DIR)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_name = f"ohshit-backup-{branch}-{timestamp}"
+    # create backup branch as local ref
+    print(Fore.BLUE + f"Backing up branch '{branch}' as '{backup_name}'...")
+    code = run_git_command(['branch', backup_name], dry_run=dry_run)[0]
+    if code == 0:
+        print(Fore.GREEN + f"Backup created: {backup_name}")
+    else:
+        print(Fore.RED + "Backup failed.")
+    return backup_name if code == 0 else None
+
+
+def log_history(action, details):
+    history = []
+    if os.path.exists(OHSHIT_HISTORY_FILE):
+        try:
+            with open(OHSHIT_HISTORY_FILE, 'r') as f:
+                history = json.load(f)
+        except Exception:
+            pass
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "action": action,
+        "details": details
+    }
+    history.append(entry)
+    try:
+        with open(OHSHIT_HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+    except Exception:
+        print(Fore.RED + "Warning: Failed to write to ohshit history.")
 
 
 def undo_last_pushed_commit(dry_run, assume_yes):
@@ -77,6 +120,7 @@ def undo_last_pushed_commit(dry_run, assume_yes):
     if code != 0:
         return code
 
+    log_history('undo-pushed', {'branch': branch})
     print(Fore.GREEN + "Done. Crisis averted.")
     return 0
 
@@ -87,7 +131,10 @@ def undo_last_local_commit(dry_run, assume_yes):
         print("Aborted.")
         return 1
     print(Fore.GREEN + "Resetting last commit softly (keeping changes)...")
-    return run_git_command(['reset', '--soft', 'HEAD~1'], dry_run=dry_run)[0]
+    code = run_git_command(['reset', '--soft', 'HEAD~1'], dry_run=dry_run)[0]
+    if code == 0:
+        log_history('undo-commit', {'commits': 1})
+    return code
 
 
 def force_push(dry_run, assume_yes):
@@ -100,7 +147,10 @@ def force_push(dry_run, assume_yes):
         print("Aborted.")
         return 1
     print(Fore.GREEN + f"Force pushing branch '{branch}'...")
-    return run_git_command(['push', '--force'], dry_run=dry_run)[0]
+    code = run_git_command(['push', '--force'], dry_run=dry_run)[0]
+    if code == 0:
+        log_history('force-push', {'branch': branch})
+    return code
 
 
 def delete_branch(branch_name, dry_run, assume_yes):
@@ -109,7 +159,10 @@ def delete_branch(branch_name, dry_run, assume_yes):
         print("Aborted.")
         return 1
     print(Fore.GREEN + f"Deleting branch '{branch_name}'...")
-    return run_git_command(['branch', '-D', branch_name], dry_run=dry_run)[0]
+    code = run_git_command(['branch', '-D', branch_name], dry_run=dry_run)[0]
+    if code == 0:
+        log_history('delete-branch', {'branch': branch_name})
+    return code
 
 
 def remove_remote(remote_name, dry_run, assume_yes):
@@ -118,7 +171,10 @@ def remove_remote(remote_name, dry_run, assume_yes):
         print("Aborted.")
         return 1
     print(Fore.GREEN + f"Removing remote '{remote_name}'...")
-    return run_git_command(['remote', 'remove', remote_name], dry_run=dry_run)[0]
+    code = run_git_command(['remote', 'remove', remote_name], dry_run=dry_run)[0]
+    if code == 0:
+        log_history('remove-remote', {'remote': remote_name})
+    return code
 
 
 def status_summary():
@@ -136,14 +192,46 @@ def status_summary():
     return 0
 
 
+def shit_n_commits(n, dry_run=False, assume_yes=False):
+    if n <= 0:
+        print(Fore.RED + "Error: Please specify a positive number of commits to go back, e.g. -3.")
+        return 1
+
+    if not is_git_repo():
+        print(Fore.RED + "Error: Not inside a Git repository. Exiting.")
+        return 1
+
+    branch = get_current_branch()
+    if not branch:
+        print(Fore.RED + "Error: Could not determine current branch.")
+        return 1
+
+    prompt = f"Are you sure you want to softly reset {n} commits on branch '{branch}'? Changes will be kept staged."
+    if not confirm(prompt, assume_yes):
+        print("Aborted.")
+        return 1
+
+    # Backup before reset
+    backup_branch(branch, dry_run)
+
+    print(Fore.GREEN + f"Soft resetting HEAD~{n} (keeping changes staged)...")
+    code = run_git_command(['reset', '--soft', f'HEAD~{n}'], dry_run=dry_run)[0]
+    if code != 0:
+        return code
+
+    log_history('shit', {'branch': branch, 'commits': n})
+    print(Fore.GREEN + f"💩 Done. {n} commits backed out but changes are still staged.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ohshit - quick git undo tool for your fuck-ups."
     )
     parser.add_argument('action', nargs='?', default='undo-pushed',
-                        choices=['undo-pushed', 'commit', 'push', 'branch', 'remote', 'status', 'help'],
+                        choices=['undo-pushed', 'commit', 'push', 'branch', 'remote', 'status', 'shit', 'help'],
                         help="Action to perform (default: undo-pushed)")
-    parser.add_argument('target', nargs='?', help="Branch or remote name for delete/remove actions.")
+    parser.add_argument('target', nargs='?', help="Branch or remote name for delete/remove actions, or argument for 'shit' (e.g. -3).")
     parser.add_argument('--dry-run', action='store_true', help="Show commands without running.")
     parser.add_argument('-y', '--yes', action='store_true', help="Skip confirmation prompts.")
     parser.add_argument('-f', '--force', action='store_true', help="Skip confirmation prompts (alias for --yes).")
@@ -151,13 +239,25 @@ def main():
 
     args = parser.parse_args()
     assume_yes = args.yes or args.force
-    if not is_git_repo():
-	print(Fore.RED + "Error: Not inside a Git repository. Exiting.")
-	sys.exit(1)
 
     if args.action == 'help':
         parser.print_help()
         sys.exit(0)
+
+    if args.action == 'shit':
+        if not args.target or not args.target.startswith('-'):
+            print(Fore.RED + "Error: Please specify number of commits to go back, e.g. 'ohshit shit -3'")
+            sys.exit(1)
+        try:
+            n = int(args.target.lstrip('-'))
+        except ValueError:
+            print(Fore.RED + "Error: Invalid number format.")
+            sys.exit(1)
+        sys.exit(shit_n_commits(n, args.dry_run, assume_yes))
+
+    if not is_git_repo():
+        print(Fore.RED + "Error: Not inside a Git repository. Exiting.")
+        sys.exit(1)
 
     if args.action == 'undo-pushed':
         sys.exit(undo_last_pushed_commit(args.dry_run, assume_yes))
