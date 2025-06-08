@@ -23,16 +23,6 @@ Install with `pip`:
 
 ## Usage
 
-Run from the directory of a Git repository directly. 
-Here are the options:
-```
-ohshit              # Undo last pushed commit (default)
-ohshit commit       # Undo last local commit
-ohshit push         # Force push current branch
-ohshit branch <name>  # Delete a local branch
-ohshit remote <name>  # Remove a Git remote
-ohshit status       # Show Git status summary
-ohshit --version    # Show version
-```
-Use `-y` or `-f` to auto-confirm prompts and `--dry-run` to preview commands without executing.
-If run outside a Git repository, ohshit will exit with an error.
+Run from the directory of a Git repository directly. For help:
+
+`ohshit -h`
