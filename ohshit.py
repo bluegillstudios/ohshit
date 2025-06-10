@@ -223,13 +223,63 @@ def shit_n_commits(n, dry_run=False, assume_yes=False):
     print(Fore.GREEN + f"💩 Done. {n} commits backed out but changes are still staged.")
     return 0
 
+def stash_exists():
+    code, stash_list = run_git_command(['stash', 'list'])
+    return bool(stash_list.strip())
+
+def run_doctor():
+    print(Fore.CYAN + "🩺 ohshit doctor report")
+    if not is_git_repo():
+        print(Fore.RED + "✘ Not inside a Git repository.")
+        return 1
+
+    branch = get_current_branch()
+    if not branch:
+        print(Fore.RED + "✘ Could not determine current branch.")
+    else:
+        print(Fore.GREEN + f"✔ On branch: {branch}")
+
+    code, head_status = run_git_command(['symbolic-ref', '--short', 'HEAD'])
+    if code != 0:
+        print(Fore.YELLOW + "⚠ Detached HEAD state")
+    else:
+        print(Fore.GREEN + "✔ Not in detached HEAD")
+
+    git_dir = subprocess.run(['git', 'rev-parse', '--git-dir'], capture_output=True, text=True).stdout.strip()
+    merge_in_progress = os.path.exists(os.path.join(git_dir, 'MERGE_HEAD'))
+    rebase_in_progress = any(os.path.exists(os.path.join(git_dir, d)) for d in ['rebase-apply', 'rebase-merge'])
+
+    print(Fore.YELLOW + "⚠ Merge in progress" if merge_in_progress else Fore.GREEN + "✔ No merge in progress")
+    print(Fore.YELLOW + "⚠ Rebase in progress" if rebase_in_progress else Fore.GREEN + "✔ No rebase in progress")
+
+    code, status = run_git_command(['status', '--porcelain'])
+    print(Fore.YELLOW + "⚠ Working tree has uncommitted changes" if status else Fore.GREEN + "✔ Working tree is clean")
+
+    if stash_exists():
+        print(Fore.YELLOW + "⚠ You have stashes")
+    else:
+        print(Fore.GREEN + "✔ No stashes")
+
+    local_hash = run_git_command(['rev-parse', branch])[1]
+    remote_hash = run_git_command(['rev-parse', f'origin/{branch}'])[1]
+    base_hash = run_git_command(['merge-base', branch, f'origin/{branch}'])[1]
+    if local_hash == remote_hash:
+        print(Fore.GREEN + "✔ Local is up-to-date with origin/" + branch)
+    elif local_hash == base_hash:
+        print(Fore.YELLOW + "⚠ Local is behind origin/" + branch)
+    elif remote_hash == base_hash:
+        print(Fore.YELLOW + "⚠ Local is ahead of origin/" + branch)
+    else:
+        print(Fore.RED + "✘ Local and origin/" + branch + " have diverged")
+
+    return 0
 
 def main():
     parser = argparse.ArgumentParser(
-        description="ohshit - quick git undo tool for your fuck-ups."
+        description="ohshit - a quick git undo tool for your fuck-ups."
     )
     parser.add_argument('action', nargs='?', default='undo-pushed',
-                        choices=['undo-pushed', 'commit', 'push', 'branch', 'remote', 'status', 'shit', 'help'],
+                        choices=['undo-pushed', 'commit', 'push', 'branch', 'remote', 'status', 'shit', 'doctor', 'help'],
                         help="Action to perform (default: undo-pushed)")
     parser.add_argument('target', nargs='?', help="Branch or remote name for delete/remove actions, or argument for 'shit' (e.g. -3).")
     parser.add_argument('--dry-run', action='store_true', help="Show commands without running.")
@@ -277,6 +327,8 @@ def main():
         sys.exit(remove_remote(args.target, args.dry_run, assume_yes))
     elif args.action == 'status':
         sys.exit(status_summary())
+    elif args.action == 'doctor':
+        sys.exit(run_doctor())
     else:
         print(Fore.RED + f"Unknown action '{args.action}'. Use --help for usage.")
         sys.exit(1)
