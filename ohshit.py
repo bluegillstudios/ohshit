@@ -57,12 +57,16 @@ def is_git_repo():
     return code == 0 and output == 'true'
 
 
+def stash_exists():
+    code, output = run_git_command(['stash', 'list'])
+    return code == 0 and output.strip() != ''
+
+
 def backup_branch(branch, dry_run=False):
     if not os.path.exists(OHSHIT_BACKUP_DIR):
         os.makedirs(OHSHIT_BACKUP_DIR)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_name = f"ohshit-backup-{branch}-{timestamp}"
-    # create backup branch as local ref
     print(Fore.BLUE + f"Backing up branch '{branch}' as '{backup_name}'...")
     code = run_git_command(['branch', backup_name], dry_run=dry_run)[0]
     if code == 0:
@@ -93,11 +97,17 @@ def log_history(action, details):
         print(Fore.RED + "Warning: Failed to write to ohshit history.")
 
 
-def undo_last_pushed_commit(dry_run, assume_yes):
+def undo_last_pushed_commit(dry_run, assume_yes, ignore_stash):
     branch = get_current_branch()
     if not branch:
         print(Fore.RED + "Error: Could not determine current branch.")
         return 1
+
+    if stash_exists() and not ignore_stash:
+        print(Fore.YELLOW + "Warning: You have stashed changes.")
+        if not confirm("Continue anyway?", assume_yes):
+            print("Aborted.")
+            return 1
 
     if not last_commit_pushed(branch):
         print(Fore.YELLOW + f"Warning: The last commit on branch '{branch}' does NOT appear pushed to origin.")
@@ -125,7 +135,13 @@ def undo_last_pushed_commit(dry_run, assume_yes):
     return 0
 
 
-def undo_last_local_commit(dry_run, assume_yes):
+def undo_last_local_commit(dry_run, assume_yes, ignore_stash):
+    if stash_exists() and not ignore_stash:
+        print(Fore.YELLOW + "Warning: You have stashed changes.")
+        if not confirm("Continue anyway?", assume_yes):
+            print("Aborted.")
+            return 1
+
     prompt = "Undo the last local commit, keeping changes staged?"
     if not confirm(prompt, assume_yes):
         print("Aborted.")
@@ -192,10 +208,16 @@ def status_summary():
     return 0
 
 
-def shit_n_commits(n, dry_run=False, assume_yes=False):
+def shit_n_commits(n, dry_run=False, assume_yes=False, ignore_stash=False):
     if n <= 0:
         print(Fore.RED + "Error: Please specify a positive number of commits to go back, e.g. -3.")
         return 1
+
+    if stash_exists() and not ignore_stash:
+        print(Fore.YELLOW + "Warning: You have stashed changes.")
+        if not confirm("Continue anyway?", assume_yes):
+            print("Aborted.")
+            return 1
 
     if not is_git_repo():
         print(Fore.RED + "Error: Not inside a Git repository. Exiting.")
@@ -211,9 +233,7 @@ def shit_n_commits(n, dry_run=False, assume_yes=False):
         print("Aborted.")
         return 1
 
-    # Backup before reset
     backup_branch(branch, dry_run)
-
     print(Fore.GREEN + f"Soft resetting HEAD~{n} (keeping changes staged)...")
     code = run_git_command(['reset', '--soft', f'HEAD~{n}'], dry_run=dry_run)[0]
     if code != 0:
@@ -222,10 +242,6 @@ def shit_n_commits(n, dry_run=False, assume_yes=False):
     log_history('shit', {'branch': branch, 'commits': n})
     print(Fore.GREEN + f"💩 Done. {n} commits backed out but changes are still staged.")
     return 0
-
-def stash_exists():
-    code, stash_list = run_git_command(['stash', 'list'])
-    return bool(stash_list.strip())
 
 def run_doctor():
     print(Fore.CYAN + "🩺 ohshit doctor report")
@@ -260,23 +276,29 @@ def run_doctor():
     else:
         print(Fore.GREEN + "✔ No stashes")
 
+    branch = get_current_branch()
+    if not branch:
+        print(Fore.RED + "✘ Could not determine current branch for upstream checks.")
+        return 1
+
     local_hash = run_git_command(['rev-parse', branch])[1]
     remote_hash = run_git_command(['rev-parse', f'origin/{branch}'])[1]
     base_hash = run_git_command(['merge-base', branch, f'origin/{branch}'])[1]
     if local_hash == remote_hash:
-        print(Fore.GREEN + "✔ Local is up-to-date with origin/" + branch)
+        print(Fore.GREEN + f"✔ Local is up-to-date with origin/{branch}")
     elif local_hash == base_hash:
-        print(Fore.YELLOW + "⚠ Local is behind origin/" + branch)
+        print(Fore.YELLOW + f"⚠ Local is behind origin/{branch}")
     elif remote_hash == base_hash:
-        print(Fore.YELLOW + "⚠ Local is ahead of origin/" + branch)
+        print(Fore.YELLOW + f"⚠ Local is ahead of origin/{branch}")
     else:
-        print(Fore.RED + "✘ Local and origin/" + branch + " have diverged")
+        print(Fore.RED + f"✘ Local and origin/{branch} have diverged")
 
     return 0
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description="ohshit - a quick git undo tool for your fuck-ups."
+        description="ohshit - quick git undo tool for your fuck-ups."
     )
     parser.add_argument('action', nargs='?', default='undo-pushed',
                         choices=['undo-pushed', 'commit', 'push', 'branch', 'remote', 'status', 'shit', 'doctor', 'help'],
@@ -285,6 +307,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help="Show commands without running.")
     parser.add_argument('-y', '--yes', action='store_true', help="Skip confirmation prompts.")
     parser.add_argument('-f', '--force', action='store_true', help="Skip confirmation prompts (alias for --yes).")
+    parser.add_argument('--ignore-stash-warning', action='store_true', help="Suppress warnings about existing stashes.")
     parser.add_argument('--version', action='version', version=f'%(prog)s {VERSION}')
 
     args = parser.parse_args()
@@ -303,16 +326,16 @@ def main():
         except ValueError:
             print(Fore.RED + "Error: Invalid number format.")
             sys.exit(1)
-        sys.exit(shit_n_commits(n, args.dry_run, assume_yes))
+        sys.exit(shit_n_commits(n, args.dry_run, assume_yes, args.ignore_stash_warning))
 
     if not is_git_repo():
         print(Fore.RED + "Error: Not inside a Git repository. Exiting.")
         sys.exit(1)
 
     if args.action == 'undo-pushed':
-        sys.exit(undo_last_pushed_commit(args.dry_run, assume_yes))
+        sys.exit(undo_last_pushed_commit(args.dry_run, assume_yes, args.ignore_stash_warning))
     elif args.action == 'commit':
-        sys.exit(undo_last_local_commit(args.dry_run, assume_yes))
+        sys.exit(undo_last_local_commit(args.dry_run, assume_yes, args.ignore_stash_warning))
     elif args.action == 'push':
         sys.exit(force_push(args.dry_run, assume_yes))
     elif args.action == 'branch':
