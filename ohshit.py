@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 import json
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 init(autoreset=True)
 
