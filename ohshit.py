@@ -8,7 +8,7 @@ import os
 import json
 import shutil
 
-VERSION = "0.1.34"
+VERSION = "0.1.36"
 
 # Global flags for color and verbosity
 USE_COLOR = True
