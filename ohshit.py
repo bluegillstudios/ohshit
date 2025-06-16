@@ -418,20 +418,20 @@ def main():
     subparsers = parser.add_subparsers(dest='command', required=True)
 
     # undo last pushed commit
-    subparsers.add_parser('undo-pushed', help='Undo last pushed commit')
+    subparsers.add_parser('fuck', help='Undo last pushed commit')
 
     # undo last local commit
-    subparsers.add_parser('undo', help='Undo last local commit')
+    subparsers.add_parser('whew', help='Undo last local commit')
 
     # force push current branch
-    subparsers.add_parser('force-push', help='Force push current branch')
+    subparsers.add_parser('sendit', help='Force push current branch')
 
     # delete local branch
-    delete_branch_parser = subparsers.add_parser('delete-branch', help='Delete local branch')
+    delete_branch_parser = subparsers.add_parser('burnit', help='Delete local branch')
     delete_branch_parser.add_argument('branch_name', help='Branch to delete')
 
     # remove remote
-    remove_remote_parser = subparsers.add_parser('remove-remote', help='Remove Git remote')
+    remove_remote_parser = subparsers.add_parser('killit', help='Remove Git remote')
     remove_remote_parser.add_argument('remote_name', help='Remote to remove')
 
     # status
@@ -460,19 +460,19 @@ def main():
     assume_yes = args.yes or args.force
     ignore_stash = args.ignore_stash
 
-    if args.command == 'undo-pushed':
+    if args.command == 'fuck':
         return undo_last_pushed_commit(dry_run, assume_yes, ignore_stash)
 
-    elif args.command == 'undo':
+    elif args.command == 'whew':
         return undo_last_local_commit(dry_run, assume_yes, ignore_stash)
 
-    elif args.command == 'force-push':
+    elif args.command == 'sendit':
         return force_push(dry_run, assume_yes)
 
-    elif args.command == 'delete-branch':
+    elif args.command == 'burnit':
         return delete_branch(args.branch_name, dry_run, assume_yes)
 
-    elif args.command == 'remove-remote':
+    elif args.command == 'killit':
         return remove_remote(args.remote_name, dry_run, assume_yes)
 
     elif args.command == 'status':
